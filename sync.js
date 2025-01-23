@@ -1,10 +1,11 @@
 const BUSY_TITLE = "busy - XXXX";            // TODO fill in
-const IGNORE_TITLES = [BUSY_TITLE, "busy"];
 const LOCAL_EMAIL = "drmorr@example.com";    // TODO fill in
 const LOCAL_CALENDAR = "drmorr@example.com"; // TODO fill in
 const REMOTE_CALENDAR = "XXXX";              // TODO fill in
 const REMOTE_EMAIL = "drmorr@example.com";   // TODO fill in
 const REMOTE_EVENT_PREFIX = "XXXX";          // TODO fill in
+
+const IGNORE_TITLES_REGEX = [BUSY_TITLE, "busy", REMOTE_EVENT_PREFIX];
 
 function syncCalendarWithRemote() {
   var numDays = 14;
@@ -103,4 +104,11 @@ function shouldInviteRemote(evt, evts_at_time) {
   }
 
   return false;
+}
+
+function getCalendarNames() {
+    var calendars = CalendarApp.getAllCalendars();
+    for (var i in calendars) {
+        console.log(calendars[i].getName());
+    }
 }
