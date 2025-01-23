@@ -7,89 +7,100 @@ const REMOTE_EMAIL = "drmorr@example.com";   // TODO fill in
 const REMOTE_EVENT_PREFIX = "XXXX";          // TODO fill in
 
 function syncCalendarWithRemote() {
-    var numDays = 5;
+  var numDays = 14;
 
-    var start = new Date();
-    var end = new Date(start.getTime() + (60 * 60 * 24 * numDays * 1000));
-    var remoteCalendar = CalendarApp.getCalendarsByName(REMOTE_CALENDAR)[0];
-    var localCalendar = CalendarApp.getCalendarsByName(LOCAL_CALENDAR)[0];
+  var start = new Date();
+  var end = new Date(start.getTime() + (60 * 60 * 24 * numDays * 1000));
+  var remoteCalendar = CalendarApp.getCalendarsByName(REMOTE_CALENDAR)[0];
+  var localCalendar = CalendarApp.getCalendarsByName(LOCAL_CALENDAR)[0];
 
-    var remoteEvents = remoteCalendar.getEvents(start, end);
-    var localEvents = localCalendar.getEvents(start, end);
+  var remoteEvents = remoteCalendar.getEvents(start, end);
+  var localEvents = localCalendar.getEvents(start, end);
 
-    var searchIndex = 0;
-    var remoteEventStartTimes = [];
-    for (var i in remoteEvents) {
-        var evt = remoteEvents[i];
-        var evtStart = evt.getStartTime();
-        var [evts, searchIndex] = findEventsWithStart(evtStart.getTime(), localEvents, searchIndex);
-        remoteEventStartTimes.push(evtStart.getTime());
-        if (shouldCreateEvent(evts)) {
-            console.log("syncing event from remote calendar at " + evtStart);
-            localCalendar.createEvent(BUSY_TITLE, evtStart, evt.getEndTime());
-        }
+  var remoteEventStartTimes = [];
+  for (var i in remoteEvents) {
+    var evt = remoteEvents[i];
+    var evtStart = evt.getStartTime();
+    var evts = findEventsWithStart(evtStart.getTime(), localEvents);
+    remoteEventStartTimes.push(evtStart.getTime());
+    if (shouldCreateLocalEvent(evts)) {
+      console.log("syncing event from remote calendar at " + evtStart);
+      localCalendar.createEvent(BUSY_TITLE, evtStart, evt.getEndTime());
     }
+  }
 
-    for (var i in localEvents) {
-        var evt = localEvents[i];
-        var evtStart = evt.getStartTime();
-        if (evt.getTitle() == BUSY_TITLE && !(remoteEventStartTimes.includes(evtStart.getTime()))) {
-            console.log("deleting event from local calendar at " + evtStart);
-            evt.deleteEvent();
-        } else if (!IGNORE_TITLES.includes(evt.getTitle()) && shouldInviteRemote(evt)) {
-            console.log("inviting remote email for event at " + evtStart);
-            localCalendar.createEvent(
-                REMOTE_EVENT_PREFIX " - " + evt.getTitle(),
-                evt.getStartTime(),
-                evt.getEndTime(),
-                {"guests": REMOTE_EMAIL, sendInvites: true},
-            )
-        }
+  for (var i in localEvents) {
+    var evt = localEvents[i];
+    var evtStart = evt.getStartTime();
+    var evts_at_time = findEventsWithStart(evtStart.getTime(), localEvents);
+
+    if (evt.getTitle() == BUSY_TITLE && !(remoteEventStartTimes.includes(evtStart.getTime()))) {
+      console.log("deleting event from local calendar");
+      evt.deleteEvent();
+    } else if (shouldInviteRemote(evt, evts_at_time)) {
+      console.log("inviting remote email for " + evt.getTitle() + " at " + evtStart);
+      localCalendar.createEvent(
+        REMOTE_EVENT_PREFIX + " - " + evt.getTitle(),
+        evt.getStartTime(),
+        evt.getEndTime(),
+        {"guests": REMOTE_EMAIL, sendInvites: true},
+      );
     }
+  }
 }
 
-function findEventsWithStart(start, events, index) {
-    var ret = [];
-    for (var i = index; i < events.length; i++) {
-        var evtStart = events[i].getStartTime().getTime();
-        if (evtStart == start) {
-            ret.push(events[i])
-        } else if (evtStart > start) {
-            break; // Assume the input list is sorted
-        }
+function findEventsWithStart(start, events) {
+  var ret = []
+  for (var i in events) {
+    var evtStart = events[i].getStartTime().getTime();
+    if (evtStart == start) {
+      ret.push(events[i])
+    } else if (evtStart > start) {
+      break; // Assume the input list is sorted
     }
+  }
 
-    return [ret, i]
+  return ret;
 }
 
-function shouldCreateEvent(evts) {
-    for (var i in evts) {
-        if (evts[i].getTitle() == BUSY_TITLE) {
-            return false;
-        }
-
-        var guests = evts[i].getGuestList();
-        for (var j in guests) {
-            if (guests[j].getEmail() == REMOTE_EMAIL) {
-                return false;
-            }
-        }
+function shouldCreateLocalEvent(evts_at_time) {
+  for (var i in evts_at_time) {
+    var evt = evts_at_time[i];
+    if (evt.getTitle() == BUSY_TITLE || evt.getTitle().startsWith(REMOTE_EVENT_PREFIX)) {
+      return false;
     }
 
-    return true;
+    var guests = evt.getGuestList();
+    for (var j in guests) {
+      if (guests[j].getEmail() == REMOTE_EMAIL) {
+        return false;
+      }
+    }
+  }
+
+  return true;
 }
 
-function shouldInviteRemote(evt) {
-    var localGuest = evt.getGuestByEmail(LOCAL_EMAIL);
-    var remoteGuest = evt.getGuestByEmail(REMOTE_EMAIL);
+function shouldInviteRemote(evt, evts_at_time) {
+  for (var j in evts_at_time) {
+    var other_evt = evts_at_time[j];
+    for (var i in IGNORE_TITLES_REGEX) {
+      if (other_evt.getTitle().search(IGNORE_TITLES_REGEX[i]) != -1) {
+        return false;
+      }
+    }
+  }
+  var localGuest = evt.getGuestByEmail(LOCAL_EMAIL);
+  var remoteGuest = evt.getGuestByEmail(REMOTE_EMAIL);
 
-    if ((evt.isOwnedByMe()
-        || (localGuest != null && localGuest.getGuestStatus() == CalendarApp.GuestStatus.YES))
-        && !evt.isAllDayEvent()
-        && remoteGuest == null
-    ) {
+  if (
+    (evt.isOwnedByMe()
+      || (localGuest != null && localGuest.getGuestStatus() == CalendarApp.GuestStatus.YES))
+    && !evt.isAllDayEvent()
+    && remoteGuest == null
+  ) {
         return true;
-    }
+  }
 
-    return false;
+  return false;
 }
